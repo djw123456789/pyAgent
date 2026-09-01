@@ -26,38 +26,74 @@ redis_client: aioredis.Redis = aioredis.from_url(
 
 async def cache_get(key: str):
     """
-    读缓存: 命中返回反序列化后的对象, 未命中返回 None。
-    Redis 故障时降级返回 None（当作 MISS 走数据库）, 绝不让缓存拖垮主业务。
+    读取缓存：
+    - HIT：返回反序列化对象
+    - MISS：返回 None
+    - Redis 故障：降级为 MISS
     """
     try:
         raw = await redis_client.get(key)
-        return json.loads(raw) if raw else None
+
+        if raw is None:
+            logger.info("[cache_get] MISS key=%s", key)
+            return None
+
+        logger.info("[cache_get] HIT key=%s", key)
+        return json.loads(raw)
+
     except Exception:
-        logger.warning(f"[cache] 读取失败, 降级直查数据库: key={key}")
+        logger.warning(
+            "[cache_get] GET failed, fallback to database key=%s",
+            key,
+        )
         return None
 
 
 async def cache_set(key: str, data, ttl: int | None = None):
     """
-    写缓存: 序列化为 JSON 并设置过期时间（默认用配置里的 CACHE_TTL）。
-
-    过期时间加了 ±20% 随机抖动, 防止大量 key 在同一秒集体过期（缓存雪崩）。
+    写入缓存并设置 TTL。
+    TTL 加随机抖动，降低缓存雪崩风险。
     """
     try:
         base = ttl or settings.CACHE_TTL
-        jittered = int(base * random.uniform(0.8, 1.2))  # 雪崩解法: TTL 抖动
-        await redis_client.set(key, json.dumps(data), ex=jittered)
-    except Exception:
-        logger.warning(f"[cache] 写入失败（不影响主流程）: key={key}")
+        jittered = int(base * random.uniform(0.8, 1.2))
 
+        await redis_client.set(
+            key,
+            json.dumps(data),
+            ex=jittered,
+        )
+
+        logger.info(
+            "[cache_set] SET key=%s ttl=%ss",
+            key,
+            jittered,
+        )
+
+    except Exception:
+        logger.warning(
+            "[cache_set] SET failed key=%s",
+            key,
+        )
 
 async def cache_delete(*keys: str):
-    """删缓存: 数据更新后调用, 支持一次删多个 key（8.6 缓存一致性会用到）"""
     try:
-        if keys:
-            await redis_client.delete(*keys)
+        if not keys:
+            return
+
+        deleted = await redis_client.delete(*keys)
+
+        logger.info(
+            "[cache_delete] DELETE keys=%s deleted=%s",
+            keys,
+            deleted,
+        )
+
     except Exception:
-        logger.warning(f"[cache] 删除失败（还有 TTL 兑底）: keys={keys}")
+        logger.warning(
+            "[cache_delete] DELETE failed keys=%s",
+            keys,
+        )
 
 
 # ---------- 缓存击穿解法: per-key 互斥锁(single-flight) ----------
