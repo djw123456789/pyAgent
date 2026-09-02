@@ -1,38 +1,94 @@
+import logging
 import time
-from collections import defaultdict
-from fastapi import Request, HTTPException, status
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import Response
 
-# 存储 IP 的请求记录：{ip: [timestamp1, timestamp2, ...]}
-request_records = defaultdict(list)
+from fastapi import Request
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
+
+from app.core.cache import redis_client
+
+
+logger = logging.getLogger(__name__)
+
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app, calls_per_minute: int = 10):
+
+    def __init__(
+        self,
+        app,
+        calls_per_minute: int = 10,
+    ):
         super().__init__(app)
+
         self.calls_per_minute = calls_per_minute
         self.window_seconds = 60
 
-    async def dispatch(self, request: Request, call_next):
-        # 获取客户端 IP（注意代理的情况，这里简化处理）
-        client_ip = request.client.host if request.client else "unknown"
+
+    async def dispatch(
+        self,
+        request: Request,
+        call_next,
+    ):
+        client_ip = (
+            request.client.host
+            if request.client
+            else "unknown"
+        )
+
         now = time.time()
-        
-        # 获取该 IP 的历史请求时间戳
-        timestamps = request_records[client_ip]
-        # 清除超出时间窗口的记录
-        timestamps[:] = [t for t in timestamps if now - t < self.window_seconds]
-        
-        # 检查是否超限
-        if len(timestamps) >= self.calls_per_minute:
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail=f"请求过于频繁，请稍后重试（每分钟限制 {self.calls_per_minute} 次）"
+
+        # 当前属于哪个 60 秒窗口
+        window_id = int(
+            now // self.window_seconds
+        )
+
+        key = (
+            f"rate_limit:"
+            f"{client_ip}:"
+            f"{window_id}"
+        )
+
+        try:
+            # 本窗口请求次数 +1
+            count = await redis_client.incr(key)
+
+            # 设置过期时间。
+            # 多给一倍时间只是为了自动清理旧窗口 key。
+            await redis_client.expire(
+                key,
+                self.window_seconds * 2,
             )
-        
-        # 记录本次请求
-        timestamps.append(now)
-        
-        # 继续处理请求
-        response = await call_next(request)
-        return response
+
+        except Exception:
+            logger.warning(
+                "[rate-limit] Redis unavailable, "
+                "request allowed"
+            )
+
+            return await call_next(request)
+
+
+        # 超过限制
+        if count > self.calls_per_minute:
+
+            retry_after = (
+                self.window_seconds
+                - int(now % self.window_seconds)
+            )
+
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "detail": (
+                        "请求过于频繁，"
+                        f"每分钟限制 "
+                        f"{self.calls_per_minute} 次"
+                    )
+                },
+                headers={
+                    "Retry-After": str(retry_after)
+                },
+            )
+
+
+        return await call_next(request)
