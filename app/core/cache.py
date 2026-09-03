@@ -10,6 +10,7 @@ import asyncio
 import json
 import logging
 import random
+import uuid
 
 import redis.asyncio as aioredis
 from app.core.config import settings
@@ -23,6 +24,42 @@ redis_client: aioredis.Redis = aioredis.from_url(
     max_connections=50,     # 连接池上限, 防止突发流量耗尽 Redis 连接
 )
 
+RELEASE_LOCK_SCRIPT = """
+if redis.call("GET", KEYS[1]) == ARGV[1] then
+    return redis.call("DEL", KEYS[1])
+else
+    return 0
+end
+"""
+
+async def acquire_lock(
+    key: str,
+    ttl: int = 5,
+):
+    token = str(uuid.uuid4())
+
+    acquired = await redis_client.set(
+        key,
+        token,
+        nx=True,
+        ex=ttl,
+    )
+
+    if acquired:
+        return token
+
+    return None
+
+async def release_lock(
+    key: str,
+    token: str,
+):
+    return await redis_client.eval(
+        RELEASE_LOCK_SCRIPT,
+        1,
+        key,
+        token,
+    )
 
 async def cache_get(key: str):
     """
