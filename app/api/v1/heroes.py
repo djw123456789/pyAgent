@@ -4,8 +4,9 @@ from fastapi import (
     APIRouter,
     Depends,
     HTTPException,
+    BackgroundTasks
 )
-
+from app.tasks.hero_events import record_hero_event
 from typing import List, Optional
 
 from sqlmodel.ext.asyncio.session import (
@@ -282,30 +283,20 @@ async def read_hero(
 # POST 创建 Hero
 # =========================================================
 
-@router.post(
-    "/",
-    response_model=Hero,
-    status_code=201,
-)
+@router.post("/", response_model=Hero, status_code=201)
 async def create_hero(
     hero: Hero,
-    session: AsyncSession = Depends(
-        get_session
-    ),
-    current_user: User = Depends(
-        get_current_user
-    ),
+    background_tasks: BackgroundTasks,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
 ):
-    created = await hero_crud.create(
-        session,
-        hero,
-        current_user.id,
-    )
+    created = await hero_crud.create(session, hero, current_user.id)
 
-    # 防止这个 ID 之前存在 NULL_SENTINEL。
-    await cache_delete(
-        f"hero:{created.id}"
-    )
+    # 删除可能存在的 NULL_SENTINEL，属于正确性操作，必须同步完成
+    await cache_delete(f"hero:{created.id}")
+
+    # 操作事件不影响业务结果，响应返回后再执行
+    background_tasks.add_task(record_hero_event, "created", created.id)
 
     return created
 
@@ -313,33 +304,19 @@ async def create_hero(
 # =========================================================
 # PUT 更新 Hero
 # =========================================================
-
-@router.put(
-    "/{hero_id}",
-    response_model=Hero,
-)
+@router.put("/{hero_id}", response_model=Hero)
 async def update_hero(
     updated_data: Hero,
-    session: AsyncSession = Depends(
-        get_session
-    ),
-    hero: Hero = Depends(
-        get_hero_by_id
-    ),
+    background_tasks: BackgroundTasks,
+    session: AsyncSession = Depends(get_session),
+    hero: Hero = Depends(get_hero_by_id),
 ):
-    # 先更新数据库
-    result = await hero_crud.update(
-        session,
-        hero.id,
-        updated_data,
-    )
+    result = await hero_crud.update(session, hero.id, updated_data)
 
-    # 再删除缓存
-    #
-    # 下一次读取会重新从 DB 回填。
-    await cache_delete(
-        f"hero:{hero.id}"
-    )
+    # 删除旧缓存属于数据一致性操作，必须同步完成
+    await cache_delete(f"hero:{hero.id}")
+
+    background_tasks.add_task(record_hero_event, "updated", hero.id)
 
     return result
 
@@ -347,28 +324,19 @@ async def update_hero(
 # =========================================================
 # DELETE Hero
 # =========================================================
-
-@router.delete(
-    "/{hero_id}",
-    status_code=204,
-)
+@router.delete("/{hero_id}", status_code=204)
 async def delete_hero(
-    session: AsyncSession = Depends(
-        get_session
-    ),
-    hero: Hero = Depends(
-        get_hero_by_id
-    ),
+    background_tasks: BackgroundTasks,
+    session: AsyncSession = Depends(get_session),
+    hero: Hero = Depends(get_hero_by_id),
 ):
-    # 先删除数据库
-    await hero_crud.delete(
-        session,
-        hero.id,
-    )
+    hero_id = hero.id
 
-    # 再删除缓存
-    await cache_delete(
-        f"hero:{hero.id}"
-    )
+    await hero_crud.delete(session, hero_id)
+
+    # 删除数据库后必须同步删除缓存
+    await cache_delete(f"hero:{hero_id}")
+
+    background_tasks.add_task(record_hero_event, "deleted", hero_id)
 
     return None
