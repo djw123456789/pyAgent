@@ -19,7 +19,9 @@ celery_app.conf.update(
     task_acks_late=True,
     task_reject_on_worker_lost=True,
     worker_prefetch_multiplier=1,
+    worker_cancel_long_running_tasks_on_connection_loss=True,
     broker_connection_retry_on_startup=True,
     result_expires=3600,
     control_queue_exclusive=True,
+    event_queue_exclusive=True,
 )

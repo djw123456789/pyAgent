@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from sqlmodel import SQLModel, create_engine
-from app.api.v1 import heroes, auth, users  # 导入新路由
+from app.api.v1 import heroes, auth, users, tasks
 from app.core.config import settings
 from app.core.cache import redis_client, close_redis
 from fastapi.exceptions import RequestValidationError
@@ -48,6 +48,7 @@ app = FastAPI(title="企业级英雄API", version="4.1.0", lifespan=lifespan)
 app.include_router(heroes.router, prefix="/api/v1/heroes", tags=["英雄管理"])
 app.include_router(auth.router, prefix="/api/v1", tags=["认证"])
 app.include_router(users.router, prefix="/api/v1", tags=["用户管理"])
+app.include_router(tasks.router, prefix="/api/v1/tasks", tags=["异步任务"])
 
 # 注册异常处理器
 app.add_exception_handler(AppException, app_exception_handler)
