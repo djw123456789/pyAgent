@@ -6,7 +6,8 @@ celery_app = Celery(
     "pyagent",
     broker=settings.CELERY_BROKER_URL,
     backend=settings.CELERY_RESULT_BACKEND,
-    include=["app.tasks.hero_events"],
+    include=["app.tasks.hero_events",
+             "app.tasks.maintenance",],    
 )
 
 celery_app.conf.update(
@@ -24,4 +25,13 @@ celery_app.conf.update(
     result_expires=3600,
     control_queue_exclusive=True,
     event_queue_exclusive=True,
+    beat_schedule={
+        "system-heartbeat-every-minute": {
+            "task": "system.heartbeat",
+            "schedule": 60.0,
+            "options": {
+                "expires": 50,
+            },
+        },
+    },
 )
