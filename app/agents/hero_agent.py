@@ -1,6 +1,7 @@
 from agents import Agent, Runner
 from agents.decorators import tool
-
+from agents.extensions.memory import RedisSession
+from app.core.cache import redis_client
 from app.core.database import async_session_maker
 from app.core.llm import deepseek_model
 from app.crud.hero import get_all, get_by_id
@@ -46,10 +47,21 @@ hero_agent = Agent(
     ],
 )
 
-async def run_hero_agent(message: str) -> str:
+async def run_hero_agent(
+    message: str,
+    session_id: str,
+) -> str:
+    session = RedisSession(
+        session_id,
+        redis_client=redis_client,
+        key_prefix="agent:session",
+        ttl=86400,
+    )
+
     result = await Runner.run(
         hero_agent,
         message,
+        session=session,
     )
 
     return str(result.final_output)
