@@ -12,6 +12,11 @@ class Settings(BaseSettings):
     CELERY_BROKER_URL: str = "amqp://admin:123456@8.148.9.192:5672//"
     CELERY_RESULT_BACKEND: str = "redis://8.148.9.192:6379/1"
 
+    # DeepSeek
+    DEEPSEEK_API_KEY: str = ""
+    DEEPSEEK_BASE_URL: str = "https://api.deepseek.com"
+    DEEPSEEK_MODEL: str = "deepseek-v4-flash"
+
     # JWT
     SECRET_KEY: str = "your-secret-key-change-in-production"
     ALGORITHM: str = "HS256"
