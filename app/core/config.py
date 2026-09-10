@@ -17,6 +17,11 @@ class Settings(BaseSettings):
     DEEPSEEK_BASE_URL: str = "https://api.deepseek.com"
     DEEPSEEK_MODEL: str = "deepseek-v4-flash"
 
+    # RAG
+    QDRANT_URL: str = "http://8.148.9.192:6333"
+    QDRANT_COLLECTION: str = "pyagent_knowledge"
+    EMBEDDING_MODEL: str = "BAAI/bge-small-zh-v1.5"
+
     # JWT
     SECRET_KEY: str = "your-secret-key-change-in-production"
     ALGORITHM: str = "HS256"
