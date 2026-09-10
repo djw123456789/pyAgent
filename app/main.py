@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from sqlmodel import SQLModel, create_engine
-from app.api.v1 import heroes, auth, users, tasks, agent
+from app.api.v1 import agent, auth, heroes, knowledge, tasks, users
 from app.core.config import settings
 from app.core.cache import redis_client, close_redis
 from fastapi.exceptions import RequestValidationError
@@ -53,6 +53,11 @@ app.include_router(
     agent.router,
     prefix="/api/v1/agent",
     tags=["Agent"],
+)
+app.include_router(
+    knowledge.router,
+    prefix="/api/v1/knowledge",
+    tags=["知识库"],
 )
 
 # 注册异常处理器
